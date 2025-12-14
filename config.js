@@ -1,8 +1,14 @@
+require('dotenv').config();
+
 module.exports = {
+    // Connection Method
+    CONNECTION_METHOD: process.env.CONNECTION_METHOD || 'PAIRING', // QR or PAIRING
+    PHONE_NUMBER: process.env.PHONE_NUMBER || '94726962984', // Your number for pairing
+    
     // Bot Settings
-    BOT_NAME: '💞Selina-Admin-Bot💞',
-    OWNER_NAME: 'AshenEdtz',
-    OWNER_NUMBER: '94726962984',
+    BOT_NAME: process.env.BOT_NAME || '💞Selina-Admin-Bot💞',
+    OWNER_NAME: process.env.OWNER_NAME || 'AshenEdtz',
+    OWNER_NUMBER: process.env.OWNER_NUMBER || '94726962984',
     PREFIX: '.',
     MODE: 'private',
     
@@ -26,14 +32,13 @@ module.exports = {
     TYPING_DELAY: 2000,
     
     // Session
-    SESSION_ID: 'SELINA_SESSION',
     AUTO_READ: true,
     AUTO_TYPING: true,
     ALWAYS_ONLINE: true,
     
-    // Replit Keep Alive
+    // Replit
     KEEP_ALIVE: true,
-    PORT: 3000,
+    PORT: process.env.PORT || 3000,
     
     // AI APIs
     AI_APIS: [
@@ -60,12 +65,6 @@ module.exports = {
             url: 'https://hercai.onrender.com/v3/hercai',
             method: 'GET',
             params: (text) => ({ question: text })
-        },
-        {
-            name: 'SimSimi',
-            url: 'https://api.simsimi.vn/v2/simtalk',
-            method: 'POST',
-            params: (text) => ({ text: text, lc: 'en' })
         }
     ]
 };
