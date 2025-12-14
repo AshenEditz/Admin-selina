@@ -3,7 +3,6 @@ const {
     useMultiFileAuthState,
     DisconnectReason,
     fetchLatestBaileysVersion,
-    makeInMemoryStore,
     getContentType,
     Browsers,
     delay
@@ -26,8 +25,6 @@ if (config.KEEP_ALIVE) {
 // Global variables
 let startTime = Date.now();
 const messageTracker = new Map();
-let qrShown = false;
-let pairingCodeShown = false;
 
 // Console colors
 const colors = {
@@ -65,7 +62,7 @@ async function connectToWhatsApp() {
     console.log(colors.highlight(`
 ╔════════════════════════════════╗
 ║   💞 SELINA-ADMIN-BOT 💞      ║
-║   Replit Edition v2.0          ║
+║   Replit Edition v2.1          ║
 ╚════════════════════════════════╝
     `));
 
@@ -80,14 +77,11 @@ async function connectToWhatsApp() {
         connectTimeoutMs: 60000,
         markOnlineOnConnect: config.ALWAYS_ONLINE,
         syncFullHistory: false,
-        getMessage: async () => ({ conversation: "Hi" })
+        generateHighQualityLinkPreview: true,
+        getMessage: async (key) => {
+            return { conversation: "Hi" };
+        }
     });
-
-    const store = makeInMemoryStore({
-        logger: pino().child({ level: "silent" })
-    });
-    
-    store?.bind(conn.ev);
 
     // Handle pairing code or QR
     if (!conn.authState.creds.registered) {
@@ -97,7 +91,6 @@ async function connectToWhatsApp() {
             console.log(colors.warning('\n⏳ Requesting pairing code...'));
             console.log(colors.info('📞 Phone Number: ' + config.PHONE_NUMBER));
             
-            // Wait a bit before requesting code
             await delay(2000);
             
             try {
@@ -110,7 +103,6 @@ async function connectToWhatsApp() {
                 console.log(colors.success('╚═══════════════════════════╝\n'));
                 console.log(colors.info('📱 Enter this code in WhatsApp:'));
                 console.log(colors.info('   Settings > Linked Devices > Link a Device\n'));
-                pairingCodeShown = true;
             } catch (error) {
                 console.log(colors.error('❌ Error requesting pairing code:'));
                 console.log(colors.error(error.message));
@@ -125,8 +117,7 @@ async function connectToWhatsApp() {
     conn.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Show QR code
-        if (qr && !qrShown) {
+        if (qr) {
             console.log(colors.warning('\n╔════════════════════════════╗'));
             console.log(colors.warning('║   SCAN QR CODE BELOW 👇   ║'));
             console.log(colors.warning('╚════════════════════════════╝\n'));
@@ -135,14 +126,9 @@ async function connectToWhatsApp() {
             qrcode.generate(qr, { small: true });
             
             console.log(colors.info('\n📱 Scan with WhatsApp: Linked Devices > Link a Device\n'));
-            qrShown = true;
         }
 
-        // Connected
         if (connection === "open") {
-            qrShown = false;
-            pairingCodeShown = false;
-            
             console.log(colors.success('\n╔════════════════════════════════╗'));
             console.log(colors.success('║  ✅ CONNECTED SUCCESSFULLY!   ║'));
             console.log(colors.success('╚════════════════════════════════╝\n'));
@@ -169,7 +155,6 @@ async function connectToWhatsApp() {
             } catch {}
         }
 
-        // Disconnected
         if (connection === "close") {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
@@ -186,7 +171,6 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Save credentials
     conn.ev.on("creds.update", saveCreds);
 
     // Message handler
@@ -208,7 +192,7 @@ async function connectToWhatsApp() {
             if (!body) return;
 
             const isGroup = from.endsWith("@g.us");
-            if (isGroup) return; // Ignore groups
+            if (isGroup) return;
 
             const sender = from;
             const senderNum = sender.split("@")[0];
@@ -219,16 +203,12 @@ async function connectToWhatsApp() {
             const args = body.trim().split(/ +/).slice(1);
             const q = args.join(" ");
 
-            // Rate limiting
             if (!checkRateLimit(from)) {
                 console.log(colors.warning(`⚠️ Rate limit: ${pushname}`));
                 return;
             }
 
-            // Anti-ban delay
             if (config.ANTI_BAN) await sleep(config.MSG_DELAY);
-            
-            // Auto read and typing
             if (config.AUTO_READ) await conn.readMessages([mek.key]);
             if (config.AUTO_TYPING) await conn.sendPresenceUpdate('composing', from);
 
@@ -284,6 +264,9 @@ async function connectToWhatsApp() {
                     }, { quoted });
                 } catch (error) {
                     console.log(colors.error('Reply error:', error.message));
+                    return await conn.sendMessage(from, {
+                        text: `${config.BOT_NAME}\n\n${text}\n\n${config.FOOTER}`
+                    });
                 }
             };
 
@@ -301,6 +284,9 @@ async function connectToWhatsApp() {
                     }, { quoted });
                 } catch (error) {
                     console.log(colors.error('Image reply error:', error.message));
+                    return await conn.sendMessage(from, {
+                        text: `${config.BOT_NAME}\n\n${caption}\n\n${config.FOOTER}`
+                    });
                 }
             };
 
@@ -357,11 +343,13 @@ async function connectToWhatsApp() {
                     const end = Date.now();
                     const ping = end - start;
                     
-                    if (pingMsg) {
+                    try {
                         await conn.sendMessage(from, {
                             text: `${config.BOT_NAME}\n\n🏓 *Pong!*\n\n⚡ Speed: ${ping}ms\n📡 Status: Online 24/7\n🧠 AI: Active\n\n${config.FOOTER}`,
                             edit: pingMsg.key
                         });
+                    } catch {
+                        await reply(`🏓 *Pong!*\n\n⚡ Speed: ${ping}ms\n📡 Status: Online 24/7`);
                     }
                     break;
 
@@ -388,7 +376,7 @@ async function connectToWhatsApp() {
                 case "creator":
                     try {
                         await conn.sendMessage(from, {
-                            contact: {
+                            contacts: {
                                 displayName: config.OWNER_NAME,
                                 contacts: [{
                                     displayName: config.OWNER_NAME,
@@ -478,7 +466,6 @@ async function connectToWhatsApp() {
                     break;
             }
 
-            // Stop typing
             if (config.AUTO_TYPING) {
                 await conn.sendPresenceUpdate('paused', from);
             }
@@ -488,10 +475,10 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Keep alive check
+    // Keep connection alive
     setInterval(() => {
         if (conn.ws.readyState !== 1) {
-            console.log(colors.warning("⚠️ Connection unstable. Reconnecting..."));
+            console.log(colors.warning("⚠️ Connection unstable"));
         }
     }, 30000);
 
@@ -501,7 +488,10 @@ async function connectToWhatsApp() {
 // Start bot
 connectToWhatsApp().catch((error) => {
     console.error(colors.error("FATAL ERROR:"), error);
-    process.exit(1);
+    setTimeout(() => {
+        console.log(colors.info("Restarting..."));
+        connectToWhatsApp();
+    }, 5000);
 });
 
 // Error handlers
